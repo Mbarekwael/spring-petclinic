@@ -1,11 +1,11 @@
 pipeline {
   agent any
-  options { timestamps(); ansiColor('xterm'); buildDiscarder(logRotator(numToKeepStr: '20')); disableConcurrentBuilds() }
+  options { timestamps(); buildDiscarder(logRotator(numToKeepStr: '20')); disableConcurrentBuilds() }
   triggers { pollSCM('@daily') }
 
   environment {
     APP_NAME         = 'spring-petclinic'
-    DOCKER_NAMESPACE = 'mbarekwael'             // <-- your Docker Hub username
+    DOCKER_NAMESPACE = 'mbarekwael'             //
     DOCKER_IMAGE     = "${env.DOCKER_NAMESPACE}/${env.APP_NAME}"
     DOCKER_CREDS_ID  = 'dockerhub-creds-wael'
   }
