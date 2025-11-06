@@ -15,9 +15,10 @@ pipeline {
   environment {
     GIT_URL        = 'https://github.com/Mbarekwael/spring-petclinic.git'
     APP_NAME       = 'spring-petclinic'
-    DOCKER_NS      = 'mbarekwael'                 
+    DOCKER_NS      = 'mbarekwael'                  
     DOCKER_IMAGE   = "${DOCKER_NS}/${APP_NAME}"
-    DOCKER_CREDSID = 'dockerhub-creds-wael'       
+    DOCKER_CREDSID = 'dockerhub-creds-wael'        
+    MAVEN_IMAGE    = 'maven:3.9.9-eclipse-temurin-25' 
   }
 
   stages {
@@ -36,49 +37,50 @@ pipeline {
       }
     }
 
-    stage('Prepare Maven Wrapper') {
+    stage('Compute Version in POM (JDK 25)') {
       steps {
-        sh 'chmod +x mvnw'
-        sh './mvnw -v'
-      }
-    }
-
-    stage('Compute Version in POM') {
-      steps {
-        
         script {
-          def pomVersion = sh(
-            script: './mvnw -q -DforceStdout help:evaluate -Dexpression=project.version',
-            returnStdout: true
-          ).trim()
-          echo "POM base version: ${pomVersion}"
+          docker.image(MAVEN_IMAGE).inside {
+            sh 'mvn -q -DforceStdout help:evaluate -Dexpression=project.version'
+            sh "mvn -B versions:set -DnewVersion=${BUILD_VERSION} -DgenerateBackupPoms=false"
+          }
         }
-        
-        sh "./mvnw -B versions:set -DnewVersion=${BUILD_VERSION} -DgenerateBackupPoms=false"
       }
     }
 
-    stage('Parallel Testing') {
+    stage('Tests (parallel, JDK 25)') {
       parallel {
         stage('Unit Tests') {
           steps {
-            sh "./mvnw -B -DskipITs=true test"
+            script {
+              docker.image(MAVEN_IMAGE).inside {
+                sh "mvn -B -DskipITs=true test"
+              }
+            }
             junit testResults: 'target/surefire-reports/*.xml'
           }
         }
         stage('Integration (safe)') {
           steps {
-            
-            sh "./mvnw -B verify -DskipTests"
+            script {
+              docker.image(MAVEN_IMAGE).inside {
+                
+                sh "mvn -B verify -DskipTests"
+              }
+            }
             junit allowEmptyResults: true, testResults: 'target/failsafe-reports/*.xml'
           }
         }
       }
     }
 
-    stage('Package') {
+    stage('Package (JDK 25)') {
       steps {
-        sh "./mvnw -B -DskipTests package"
+        script {
+          docker.image(MAVEN_IMAGE).inside {
+            sh "mvn -B -DskipTests package"
+          }
+        }
         archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
       }
     }
@@ -118,7 +120,6 @@ pipeline {
   post {
     success {
       echo "✅ ${env.JOB_NAME} #${env.BUILD_NUMBER} pushed ${DOCKER_IMAGE}:${DOCKER_TAG}"
-      archiveArtifacts artifacts: 'target/*.jar,image.txt', fingerprint: true, onlyIfSuccessful: false
     }
     failure {
       echo "❌ Build failed — check console log."
