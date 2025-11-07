@@ -36,33 +36,6 @@ pipeline {
       }
     }
 
-    
-    stage('Setup JDK 25 (SDKMAN)') {
-  steps {
-    sh '''#!/bin/bash
-      set -eux
-      export SDKMAN_DIR="${SDKMAN_DIR}"
-      export SDKMAN_CANDIDATES_API="https://api.sdkman.io/2"
-      export SDKMAN_PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
-      export SDKMAN_VERSION="5.20.0"
-
-      if [ ! -s "${SDKMAN_DIR}/bin/sdkman-init.sh" ]; then
-        curl -s https://get.sdkman.io | bash
-      fi
-
-      sed -i '1i export SDKMAN_CANDIDATES_API="https://api.sdkman.io/2"' "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-      sed -i '1i export SDKMAN_VERSION="5.20.0"' "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-      sed -i '1i export SDKMAN_PLATFORM="$(uname -s | tr "[:upper:]" "[:lower:]")"' "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-      sed -i '1i export SDKMAN_DIR="${SDKMAN_DIR}"' "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-
-      source "${SDKMAN_DIR}/bin/sdkman-init.sh"
-      sdk install java 25-tem || true
-      sdk use java 25-tem
-      java -version
-    '''
-  }
-}
-
     stage('Build') {
       steps {
         sh '''
