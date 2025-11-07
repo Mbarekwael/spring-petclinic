@@ -1,24 +1,15 @@
 pipeline {
   agent any
-
-  options {
-    timestamps()
-    buildDiscarder(logRotator(numToKeepStr: '20'))
-    disableConcurrentBuilds()
-  }
+  options { timestamps(); ansiColor('xterm') }
 
   parameters {
-    string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch to build')
-    choice(name: 'DEPLOY_ENV', choices: ['none','staging','production'], description: 'Where to deploy after push')
+    string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch')
+    choice(name: 'DEPLOY_ENV', choices: ['staging','production'], description: 'Deploy env')
   }
 
   environment {
-    GIT_URL        = 'https://github.com/Mbarekwael/spring-petclinic.git'
-    APP_NAME       = 'spring-petclinic'
-    DOCKER_NS      = 'mbarekwael'                  
-    DOCKER_IMAGE   = "${DOCKER_NS}/${APP_NAME}"
-    DOCKER_CREDSID = 'dockerhub-creds-wael'        
-    MAVEN_IMAGE    = 'maven:3.9.9-eclipse-temurin-25' 
+    GIT_URL   = 'https://github.com/gaidaahmed/spring-petclinic.git'
+    JAVA_HOME = '/var/jenkins_home/.sdkman/candidates/java/current'
   }
 
   stages {
@@ -29,100 +20,94 @@ pipeline {
           userRemoteConfigs: [[url: env.GIT_URL]]
         ])
         script {
-          env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
           env.BUILD_VERSION    = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+          env.DOCKER_IMAGE     = "spring-petclinic"
           env.DOCKER_TAG       = env.BUILD_VERSION
-          echo "Commit=${env.GIT_COMMIT_SHORT}  Version=${env.BUILD_VERSION}"
+          echo "Commit=${env.GIT_COMMIT_SHORT}  BUILD_VERSION=${env.BUILD_VERSION}"
         }
       }
     }
 
-    stage('Compute Version in POM (JDK 25)') {
+    stage('Build') {
       steps {
-        script {
-          docker.image(MAVEN_IMAGE).inside {
-            sh 'mvn -q -DforceStdout help:evaluate -Dexpression=project.version'
-            sh "mvn -B versions:set -DnewVersion=${BUILD_VERSION} -DgenerateBackupPoms=false"
-          }
-        }
+        sh '''
+          export PATH="${JAVA_HOME}/bin:${PATH}"
+          chmod +x mvnw || true
+          ./mvnw -B -U -DskipTests=true clean package
+        '''
+      }
+      post {
+        always { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false }
       }
     }
 
-    stage('Tests (parallel, JDK 25)') {
+    stage('Parallel Testing') {
       parallel {
         stage('Unit Tests') {
           steps {
-            script {
-              docker.image(MAVEN_IMAGE).inside {
-                sh "mvn -B -DskipITs=true test"
-              }
-            }
-            junit testResults: 'target/surefire-reports/*.xml'
+            // Exclude PostgresIntegrationTests and skip docker-compose in tests
+            sh '''
+              export PATH="${JAVA_HOME}/bin:${PATH}"
+              ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
+                     -Dtest=\\!PostgresIntegrationTests \
+                     test
+            '''
+          }
+          post {
+            always { junit testResults: 'target/**/TEST-*.xml', allowEmptyResults: false }
           }
         }
-        stage('Integration (safe)') {
+        stage('Integration Tests (MySQL only)') {
           steps {
-            script {
-              docker.image(MAVEN_IMAGE).inside {
-                
-                sh "mvn -B verify -DskipTests"
-              }
-            }
-            junit allowEmptyResults: true, testResults: 'target/failsafe-reports/*.xml'
+            // Run only the MySQL ITs; also skip docker-compose
+            sh '''
+              export PATH="${JAVA_HOME}/bin:${PATH}"
+              ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
+                     -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
+                     verify
+            '''
+          }
+          post {
+            always { junit testResults: 'target/**/TEST-*.xml', allowEmptyResults: true }
           }
         }
       }
     }
 
-    stage('Package (JDK 25)') {
+    stage('Docker Image Build') {
       steps {
-        script {
-          docker.image(MAVEN_IMAGE).inside {
-            sh "mvn -B -DskipTests package"
-          }
-        }
-        archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+        sh '''
+          docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+          docker images | head -n 5
+        '''
       }
     }
 
-    stage('Docker Build & Push') {
+    stage('Artifact Archiving') {
       steps {
-        script {
-          docker.withRegistry('', DOCKER_CREDSID) {
-            def img = docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-            img.push()
-            img.push('latest')
-          }
-        }
+        sh 'echo "image=${DOCKER_IMAGE}:${DOCKER_TAG}" > image.txt'
+        archiveArtifacts artifacts: 'image.txt', fingerprint: true
       }
     }
 
-    stage('Deploy') {
-      when {
-        allOf {
-          expression { params.DEPLOY_ENV != 'none' }
-          branch 'main'
-        }
-      }
+    stage('Deployment (staging only)') {
+      when { expression { params.DEPLOY_ENV == 'staging' && !env.CHANGE_ID } }
       steps {
-        script {
-          def hostPort = (params.DEPLOY_ENV == 'production') ? '8080' : '8082'
-          sh """
-            docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
-            docker rm -f ${APP_NAME}-${params.DEPLOY_ENV} || true
-            docker run -d --name ${APP_NAME}-${params.DEPLOY_ENV} --network petnet -p ${hostPort}:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
-          """
-        }
+        sh '''
+          docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
+          docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
+          # host 8082 (busy 8080), container 8080
+          docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
+          echo "Application deployed successfully."
+        '''
       }
     }
   }
 
   post {
-    success {
-      echo "✅ ${env.JOB_NAME} #${env.BUILD_NUMBER} pushed ${DOCKER_IMAGE}:${DOCKER_TAG}"
-    }
-    failure {
-      echo "❌ Build failed — check console log."
-    }
+    success { echo "✅ ${env.JOB_NAME} #${env.BUILD_NUMBER}  ${env.DOCKER_IMAGE}:${env.DOCKER_TAG}" }
+    failure { echo "❌ Build failed" }
+    always  { archiveArtifacts artifacts: 'target/*.jar, image.txt', fingerprint: true, onlyIfSuccessful: false }
   }
 }
