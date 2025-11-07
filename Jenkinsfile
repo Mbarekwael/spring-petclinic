@@ -5,7 +5,7 @@ pipeline {
   environment {
     // --- CONFIGURATION ---
     GIT_URL = 'https://github.com/Mbarekwael/spring-petclinic.git'
-    JAVA_HOME = 'C:\\Program Files\\Java\\jdk-21'  
+    JAVA_HOME = 'C:\\Program Files\\Eclipse Adoptium\\jdk-25.0.1.8-hotspot'  
     DOCKER_IMAGE = 'spring-petclinic'
     DOCKER_HUB_USERNAME = 'mbarekwael'             
   }
