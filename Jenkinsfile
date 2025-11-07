@@ -39,7 +39,7 @@ pipeline {
     
     stage('Setup JDK 25 (SDKMAN)') {
   steps {
-    sh '''
+    sh '''#!/bin/bash
       set -eux
       export SDKMAN_DIR="${SDKMAN_DIR}"
       export SDKMAN_CANDIDATES_API="https://api.sdkman.io/2"
@@ -62,6 +62,7 @@ pipeline {
     '''
   }
 }
+
     stage('Build') {
       steps {
         sh '''
