@@ -3,20 +3,16 @@ pipeline {
 
   options {
     timestamps()
-    
     ansiColor('xterm')
   }
 
   parameters {
     string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch')
-    choice(name: 'DEPLOY_ENV', choices: ['staging','production'], description: 'Deploy env')
+    choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: 'Deploy environment')
   }
 
   environment {
-    
     GIT_URL = 'https://github.com/Mbarekwael/spring-petclinic.git'
-    
-    SDKMAN_DIR = "${env.WORKSPACE}/.sdkman"
   }
 
   stages {
@@ -40,9 +36,7 @@ pipeline {
       steps {
         sh '''
           set -eux
-          export SDKMAN_DIR="${SDKMAN_DIR}"
-          . "${SDKMAN_DIR}/bin/sdkman-init.sh"
-          sdk use java 25-tem
+          java -version
           chmod +x mvnw || true
           ./mvnw -B -U -DskipTests=true clean package
         '''
@@ -60,9 +54,6 @@ pipeline {
           steps {
             sh '''
               set -eux
-              export SDKMAN_DIR="${SDKMAN_DIR}"
-              . "${SDKMAN_DIR}/bin/sdkman-init.sh"
-              sdk use java 25-tem
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=\\!PostgresIntegrationTests \
                      test
@@ -74,12 +65,8 @@ pipeline {
         }
         stage('Integration Tests (MySQL only)') {
           steps {
-            
             sh '''
               set -eux
-              export SDKMAN_DIR="${SDKMAN_DIR}"
-              . "${SDKMAN_DIR}/bin/sdkman-init.sh"
-              sdk use java 25-tem
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
                      verify || true
@@ -116,7 +103,6 @@ pipeline {
           set -eux
           docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
           docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
-          # host 8082 (busy 8080), container 8080
           docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
           echo "Application deployed successfully."
         '''
