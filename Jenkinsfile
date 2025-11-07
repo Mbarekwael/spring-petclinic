@@ -2,10 +2,6 @@ pipeline {
   agent any
   options { timestamps(); ansiColor('xterm') }
 
-  parameters {
-    string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch')
-    choice(name: 'DEPLOY_ENV', choices: ['staging','production'], description: 'Deploy environment')
-  }
 
   environment {
     GIT_URL = 'https://github.com/Mbarekwael/spring-petclinic.git'
