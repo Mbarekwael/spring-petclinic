@@ -1,6 +1,11 @@
 pipeline {
   agent any
-  options { timestamps(); ansiColor('xterm') }
+
+  options {
+    timestamps()
+    
+    ansiColor('xterm')
+  }
 
   parameters {
     string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch')
@@ -8,8 +13,10 @@ pipeline {
   }
 
   environment {
-    GIT_URL   = 'https://github.com/gaidaahmed/spring-petclinic.git'
-    JAVA_HOME = '/var/jenkins_home/.sdkman/candidates/java/current'
+    
+    GIT_URL = 'https://github.com/Mbarekwael/spring-petclinic.git'
+    
+    SDKMAN_DIR = "${env.WORKSPACE}/.sdkman"
   }
 
   stages {
@@ -29,16 +36,41 @@ pipeline {
       }
     }
 
+    
+    stage('Setup JDK 25 (SDKMAN)') {
+      steps {
+        sh '''
+          set -eux
+          export SDKMAN_DIR="${SDKMAN_DIR}"
+          # install SDKMAN if missing
+          if [ ! -s "${SDKMAN_DIR}/bin/sdkman-init.sh" ]; then
+            curl -s https://get.sdkman.io | bash
+          fi
+          # load sdkman
+          . "${SDKMAN_DIR}/bin/sdkman-init.sh"
+          # install or use Temurin 25
+          sdk install java 25-tem || true
+          sdk use java 25-tem
+          java -version
+        '''
+      }
+    }
+
     stage('Build') {
       steps {
         sh '''
-          export PATH="${JAVA_HOME}/bin:${PATH}"
+          set -eux
+          export SDKMAN_DIR="${SDKMAN_DIR}"
+          . "${SDKMAN_DIR}/bin/sdkman-init.sh"
+          sdk use java 25-tem
           chmod +x mvnw || true
           ./mvnw -B -U -DskipTests=true clean package
         '''
       }
       post {
-        always { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false }
+        always {
+          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false
+        }
       }
     }
 
@@ -46,9 +78,11 @@ pipeline {
       parallel {
         stage('Unit Tests') {
           steps {
-            // Exclude PostgresIntegrationTests and skip docker-compose in tests
             sh '''
-              export PATH="${JAVA_HOME}/bin:${PATH}"
+              set -eux
+              export SDKMAN_DIR="${SDKMAN_DIR}"
+              . "${SDKMAN_DIR}/bin/sdkman-init.sh"
+              sdk use java 25-tem
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=\\!PostgresIntegrationTests \
                      test
@@ -60,12 +94,15 @@ pipeline {
         }
         stage('Integration Tests (MySQL only)') {
           steps {
-            // Run only the MySQL ITs; also skip docker-compose
+            
             sh '''
-              export PATH="${JAVA_HOME}/bin:${PATH}"
+              set -eux
+              export SDKMAN_DIR="${SDKMAN_DIR}"
+              . "${SDKMAN_DIR}/bin/sdkman-init.sh"
+              sdk use java 25-tem
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
-                     verify
+                     verify || true
             '''
           }
           post {
@@ -78,6 +115,7 @@ pipeline {
     stage('Docker Image Build') {
       steps {
         sh '''
+          set -eux
           docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
           docker images | head -n 5
         '''
@@ -95,6 +133,7 @@ pipeline {
       when { expression { params.DEPLOY_ENV == 'staging' && !env.CHANGE_ID } }
       steps {
         sh '''
+          set -eux
           docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
           docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
           # host 8082 (busy 8080), container 8080
