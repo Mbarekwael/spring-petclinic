@@ -31,29 +31,26 @@ pipeline {
     }
 
     stage('Build with Java 24 (Temurin)') {
-      agent {
-        docker {
-          image 'maven:3.9.9-eclipse-temurin-24-alpine'
-          args '-v /var/run/docker.sock:/var/run/docker.sock'
-        }
-      }
-      steps {
-        sh '''
-          set -eux
-          mkdir -p /tmp/.m2
-          export MAVEN_OPTS="-Dmaven.repo.local=/tmp/.m2"
-
-          java -version
-          chmod +x mvnw || true
-          ./mvnw -B -U -DskipTests=true clean package
-        '''
-      }
-      post {
-        always {
-          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false
-        }
-      }
+  agent {
+    docker {
+      image 'maven:3.9.9-eclipse-temurin-24-alpine'
+      args '-v $WORKSPACE/.m2:/root/.m2 -v /var/run/docker.sock:/var/run/docker.sock'
     }
+  }
+  steps {
+    sh '''
+      set -eux
+      java -version
+      chmod +x mvnw || true
+      ./mvnw -B -U -DskipTests=true clean package
+    '''
+  }
+  post {
+    always {
+      archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false
+    }
+  }
+}
 
     stage('Docker Image Build') {
       steps {
