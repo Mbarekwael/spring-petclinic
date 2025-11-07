@@ -2,25 +2,30 @@ pipeline {
   agent any
   options { timestamps(); ansiColor('xterm') }
 
-
   environment {
     GIT_URL = 'https://github.com/Mbarekwael/spring-petclinic.git'
+    GIT_BRANCH = 'main'
     DOCKER_IMAGE = "spring-petclinic"
   }
 
   stages {
 
+    stage('Clean Workspace') {
+      steps {
+        echo '🧹 Cleaning workspace...'
+        deleteDir()
+      }
+    }
+
     stage('Checkout') {
       steps {
-        checkout([$class: 'GitSCM',
-          branches: [[name: "*/${params.BRANCH}"]],
-          userRemoteConfigs: [[url: env.GIT_URL]]
-        ])
+        echo "🔄 Checking out branch: ${env.GIT_BRANCH}"
+        git branch: "${env.GIT_BRANCH}", url: "${env.GIT_URL}"
         script {
           env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
           env.BUILD_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
           env.DOCKER_TAG = env.BUILD_VERSION
-          echo "Commit=${env.GIT_COMMIT_SHORT}  BUILD_VERSION=${env.BUILD_VERSION}"
+          echo "✅ Checked out commit ${env.GIT_COMMIT_SHORT}"
         }
       }
     }
@@ -35,10 +40,8 @@ pipeline {
       steps {
         sh '''
           set -eux
-          # Ensure Maven has a writable local repo inside Jenkins workspace
-          WORKDIR=$(pwd)
-          mkdir -p $WORKDIR/.m2
-          export MAVEN_OPTS="-Dmaven.repo.local=$WORKDIR/.m2"
+          mkdir -p /tmp/.m2
+          export MAVEN_OPTS="-Dmaven.repo.local=/tmp/.m2"
 
           java -version
           chmod +x mvnw || true
@@ -62,8 +65,7 @@ pipeline {
       }
     }
 
-    stage('Deploy (staging only)') {
-      when { expression { params.DEPLOY_ENV == 'staging' } }
+    stage('Deploy to Staging') {
       steps {
         sh '''
           set -eux
@@ -79,6 +81,5 @@ pipeline {
   post {
     success { echo "✅ Build #${env.BUILD_NUMBER} successful (${env.DOCKER_IMAGE}:${env.DOCKER_TAG})" }
     failure { echo "❌ Build failed" }
-    always { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false }
   }
 }
