@@ -1,10 +1,6 @@
 pipeline {
   agent any
-
-  options {
-    timestamps()
-    ansiColor('xterm')
-  }
+  options { timestamps(); ansiColor('xterm') }
 
   parameters {
     string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch')
@@ -17,7 +13,6 @@ pipeline {
   }
 
   stages {
-
     stage('Checkout') {
       steps {
         checkout([$class: 'GitSCM',
@@ -33,7 +28,7 @@ pipeline {
       }
     }
 
-    stage('Build & Test with Java 25') {
+    stage('Build & Test (Java 25)') {
       agent {
         docker {
           image 'maven:3.9.9-eclipse-temurin-25'
@@ -48,9 +43,7 @@ pipeline {
         '''
       }
       post {
-        always {
-          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
-        }
+        always { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true }
       }
     }
 
@@ -72,7 +65,7 @@ pipeline {
           docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
           docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
           docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
-          echo "Application deployed successfully."
+          echo "✅ Application deployed successfully"
         '''
       }
     }
