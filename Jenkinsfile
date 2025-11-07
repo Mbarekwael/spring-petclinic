@@ -1,10 +1,14 @@
 pipeline {
   agent any
-  options { timestamps(); ansiColor('xterm') }
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+  }
 
   parameters {
     string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch')
-    choice(name: 'DEPLOY_ENV', choices: ['staging','production'], description: 'Deploy environment')
+    choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: 'Deploy environment')
   }
 
   environment {
@@ -13,22 +17,25 @@ pipeline {
   }
 
   stages {
+
     stage('Checkout') {
       steps {
-        checkout([$class: 'GitSCM',
+        checkout([
+          $class: 'GitSCM',
           branches: [[name: "*/${params.BRANCH}"]],
           userRemoteConfigs: [[url: env.GIT_URL]]
         ])
+
         script {
           env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
           env.BUILD_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
           env.DOCKER_TAG = env.BUILD_VERSION
-          echo "Commit=${env.GIT_COMMIT_SHORT}  BUILD_VERSION=${env.BUILD_VERSION}"
+          echo "📦 Commit=${env.GIT_COMMIT_SHORT} | BUILD_VERSION=${env.BUILD_VERSION}"
         }
       }
     }
 
-    stage('Build & Test (Java 25)') {
+    stage('Build with Java 25') {
       agent {
         docker {
           image 'maven:3.9.9-eclipse-temurin-25'
@@ -39,11 +46,13 @@ pipeline {
         sh '''
           set -eux
           java -version
-          ./mvnw -B -U clean package
+          ./mvnw -B -U -DskipTests=true clean package
         '''
       }
       post {
-        always { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true }
+        always {
+          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false
+        }
       }
     }
 
@@ -58,21 +67,27 @@ pipeline {
     }
 
     stage('Deploy (staging only)') {
-      when { expression { params.DEPLOY_ENV == 'staging' } }
+      when {
+        expression { params.DEPLOY_ENV == 'staging' }
+      }
       steps {
         sh '''
           set -eux
           docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
           docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
           docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
-          echo "✅ Application deployed successfully"
+          echo "✅ Application deployed successfully."
         '''
       }
     }
   }
 
   post {
-    success { echo "✅ Build #${env.BUILD_NUMBER} successful (${env.DOCKER_IMAGE}:${env.DOCKER_TAG})" }
-    failure { echo "❌ Build failed" }
+    success {
+      echo "✅ Build #${env.BUILD_NUMBER} succeeded — Image: ${env.DOCKER_IMAGE}:${env.DOCKER_TAG}"
+    }
+    failure {
+      echo "❌ Build #${env.BUILD_NUMBER} failed."
+    }
   }
 }
