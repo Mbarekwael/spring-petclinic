@@ -8,14 +8,16 @@ pipeline {
 
   parameters {
     string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch')
-    choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: 'Deploy environment')
+    choice(name: 'DEPLOY_ENV', choices: ['staging','production'], description: 'Deploy environment')
   }
 
   environment {
     GIT_URL = 'https://github.com/Mbarekwael/spring-petclinic.git'
+    DOCKER_IMAGE = "spring-petclinic"
   }
 
   stages {
+
     stage('Checkout') {
       steps {
         checkout([$class: 'GitSCM',
@@ -24,57 +26,30 @@ pipeline {
         ])
         script {
           env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-          env.BUILD_VERSION    = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
-          env.DOCKER_IMAGE     = "spring-petclinic"
-          env.DOCKER_TAG       = env.BUILD_VERSION
+          env.BUILD_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+          env.DOCKER_TAG = env.BUILD_VERSION
           echo "Commit=${env.GIT_COMMIT_SHORT}  BUILD_VERSION=${env.BUILD_VERSION}"
         }
       }
     }
 
-    stage('Build') {
+    stage('Build & Test with Java 25') {
+      agent {
+        docker {
+          image 'maven:3.9.9-eclipse-temurin-25'
+          args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+      }
       steps {
         sh '''
           set -eux
           java -version
-          chmod +x mvnw || true
-          ./mvnw -B -U -DskipTests=true clean package
+          ./mvnw -B -U clean package
         '''
       }
       post {
         always {
-          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false
-        }
-      }
-    }
-
-    stage('Parallel Testing') {
-      parallel {
-        stage('Unit Tests') {
-          steps {
-            sh '''
-              set -eux
-              ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
-                     -Dtest=\\!PostgresIntegrationTests \
-                     test
-            '''
-          }
-          post {
-            always { junit testResults: 'target/**/TEST-*.xml', allowEmptyResults: false }
-          }
-        }
-        stage('Integration Tests (MySQL only)') {
-          steps {
-            sh '''
-              set -eux
-              ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
-                     -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
-                     verify || true
-            '''
-          }
-          post {
-            always { junit testResults: 'target/**/TEST-*.xml', allowEmptyResults: true }
-          }
+          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
         }
       }
     }
@@ -89,15 +64,8 @@ pipeline {
       }
     }
 
-    stage('Artifact Archiving') {
-      steps {
-        sh 'echo "image=${DOCKER_IMAGE}:${DOCKER_TAG}" > image.txt'
-        archiveArtifacts artifacts: 'image.txt', fingerprint: true
-      }
-    }
-
-    stage('Deployment (staging only)') {
-      when { expression { params.DEPLOY_ENV == 'staging' && !env.CHANGE_ID } }
+    stage('Deploy (staging only)') {
+      when { expression { params.DEPLOY_ENV == 'staging' } }
       steps {
         sh '''
           set -eux
@@ -111,8 +79,7 @@ pipeline {
   }
 
   post {
-    success { echo "✅ ${env.JOB_NAME} #${env.BUILD_NUMBER}  ${env.DOCKER_IMAGE}:${env.DOCKER_TAG}" }
+    success { echo "✅ Build #${env.BUILD_NUMBER} successful (${env.DOCKER_IMAGE}:${env.DOCKER_TAG})" }
     failure { echo "❌ Build failed" }
-    always  { archiveArtifacts artifacts: 'target/*.jar, image.txt', fingerprint: true, onlyIfSuccessful: false }
   }
 }
