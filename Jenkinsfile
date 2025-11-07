@@ -160,4 +160,3 @@ pipeline {
     failure { echo "❌ Build failed" }
     always  { archiveArtifacts artifacts: 'target/*.jar, image.txt', fingerprint: true, onlyIfSuccessful: false }
   }
-}
