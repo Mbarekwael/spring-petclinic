@@ -38,22 +38,31 @@ pipeline {
 
     
     stage('Setup JDK 25 (SDKMAN)') {
-      steps {
-        sh '''
+      sh '''
       set -eux
       export SDKMAN_DIR="${SDKMAN_DIR}"
       export SDKMAN_CANDIDATES_API="https://api.sdkman.io/2"
       export SDKMAN_PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
       export SDKMAN_VERSION="5.20.0"
-      # install SDKMAN if missing
+
+      
       if [ ! -s "${SDKMAN_DIR}/bin/sdkman-init.sh" ]; then
         curl -s https://get.sdkman.io | bash
       fi
-      # load sdkman properly
+
+      
+      sed -i '1i export SDKMAN_CANDIDATES_API="https://api.sdkman.io/2"' "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+      sed -i '1i export SDKMAN_VERSION="5.20.0"' "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+      sed -i '1i export SDKMAN_PLATFORM="$(uname -s | tr "[:upper:]" "[:lower:]")"' "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+      sed -i '1i export SDKMAN_DIR="${SDKMAN_DIR}"' "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+
+      
       source "${SDKMAN_DIR}/bin/sdkman-init.sh"
-      # install or use Temurin 25
+
+      
       sdk install java 25-tem || true
       sdk use java 25-tem
+
       java -version
     '''
   }
