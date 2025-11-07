@@ -39,9 +39,10 @@ pipeline {
       steps {
         sh '''
           set -eux
-          # Ensure Maven has a writable local repo
-          mkdir -p .m2
-          export MAVEN_OPTS="-Dmaven.repo.local=$(pwd)/.m2"
+          # Ensure Maven has a writable local repo inside Jenkins workspace
+          WORKDIR=$(pwd)
+          mkdir -p $WORKDIR/.m2
+          export MAVEN_OPTS="-Dmaven.repo.local=$WORKDIR/.m2"
 
           java -version
           chmod +x mvnw || true
