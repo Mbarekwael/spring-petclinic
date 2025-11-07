@@ -1,13 +1,10 @@
 pipeline {
   agent any
-  options { 
-    timestamps()
-    ansiColor('xterm')
-  }
+  options { timestamps(); ansiColor('xterm') }
 
   parameters {
     string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch')
-    choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: 'Deploy environment')
+    choice(name: 'DEPLOY_ENV', choices: ['staging','production'], description: 'Deploy environment')
   }
 
   environment {
@@ -32,10 +29,9 @@ pipeline {
       }
     }
 
-    stage('Build with Java 25 (via Maven + Temurin 24 image)') {
+    stage('Build with Java 24 (Temurin)') {
       agent {
         docker {
-          
           image 'maven:3.9.9-eclipse-temurin-24-alpine'
           args '-v /var/run/docker.sock:/var/run/docker.sock'
         }
@@ -43,6 +39,10 @@ pipeline {
       steps {
         sh '''
           set -eux
+          # Ensure Maven has a writable local repo
+          mkdir -p .m2
+          export MAVEN_OPTS="-Dmaven.repo.local=$(pwd)/.m2"
+
           java -version
           chmod +x mvnw || true
           ./mvnw -B -U -DskipTests=true clean package
@@ -73,14 +73,15 @@ pipeline {
           docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
           docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
           docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
-          echo "✅ Application deployed successfully on port 8082"
+          echo "✅ Application deployed successfully"
         '''
       }
     }
   }
 
   post {
-    success { echo "✅ Build #${env.BUILD_NUMBER} successful — ${env.DOCKER_IMAGE}:${env.DOCKER_TAG}" }
-    failure { echo "❌ Build failed — check logs above" }
+    success { echo "✅ Build #${env.BUILD_NUMBER} successful (${env.DOCKER_IMAGE}:${env.DOCKER_TAG})" }
+    failure { echo "❌ Build failed" }
+    always { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false }
   }
 }
