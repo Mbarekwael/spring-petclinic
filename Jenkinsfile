@@ -35,7 +35,7 @@ pipeline {
     stage('Build with Java 25 (via Maven + Temurin 24 image)') {
       agent {
         docker {
-          // JDK 25 is very new, 24 is stable and fully compatible
+          
           image 'maven:3.9.9-eclipse-temurin-24-alpine'
           args '-v /var/run/docker.sock:/var/run/docker.sock'
         }
