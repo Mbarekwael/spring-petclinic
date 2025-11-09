@@ -74,18 +74,26 @@ pipeline {
     stage('Docker Build & Push') {
       steps {
         script {
-          docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds-wael') {
-            sh '''
-              echo "---- Building Docker image ----"
-              docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-              docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
-              echo "---- Pushing to Docker Hub ----"
-              docker push ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
-            '''
-          }
+            // Build version tag from build number and short commit
+            def buildVersion = "${BUILD_NUMBER}-${GIT_COMMIT.take(6)}"
+            env.DOCKER_IMAGE = "spring-petclinic"
+            env.DOCKER_TAG = buildVersion
+
+            echo "---- Building Docker image ----"
+            sh """
+                docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+            """
+
+            docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds-wael') {
+                sh """
+                    echo ---- Tagging and pushing to Docker Hub ----
+                    docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} waelmbarek/${DOCKER_IMAGE}:${DOCKER_TAG}
+                    docker push waelmbarek/${DOCKER_IMAGE}:${DOCKER_TAG}
+                """
+            }
         }
-      }
     }
+}
 
     stage('Artifact Archiving') {
       steps {
