@@ -119,16 +119,12 @@ pipeline {
 
   post {
     success {
-      echo "✅ Build successful: ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}"
-      mail to: "${EMAIL_RECIPIENTS}",
-           subject: "✅ Jenkins Build SUCCESS #${BUILD_NUMBER}",
-           body: "The build and deployment of ${DOCKER_IMAGE}:${DOCKER_TAG} completed successfully."
+        echo "✅ Build successful: ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}"
+        echo "📦 The build and deployment of ${DOCKER_IMAGE}:${DOCKER_TAG} completed successfully."
     }
     failure {
-      echo "❌ Build failed!"
-      mail to: "${EMAIL_RECIPIENTS}",
-           subject: "❌ Jenkins Build FAILED #${BUILD_NUMBER}",
-           body: "The Jenkins build for ${DOCKER_IMAGE}:${DOCKER_TAG} has failed. Please check logs."
+        echo "❌ Build failed!"
+        echo "⚠️ The Jenkins build for ${DOCKER_IMAGE}:${DOCKER_TAG} has failed. Please check logs."
     }
-  }
+ }
 }
