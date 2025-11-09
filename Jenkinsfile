@@ -11,7 +11,7 @@ pipeline {
     GIT_URL = 'https://github.com/Mbarekwael/spring-petclinic.git'
     DOCKER_IMAGE = 'spring-petclinic'
     DOCKER_HUB_USERNAME = 'mbarekwael'
-    EMAIL_RECIPIENTS = 'team@example.com'
+    EMAIL_RECIPIENTS = 'wael.mbarek2001@gmail.com'
   }
 
   stages {
