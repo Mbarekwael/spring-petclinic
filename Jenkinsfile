@@ -1,18 +1,21 @@
 pipeline {
   agent any
-  options { timestamps(); ansiColor('xterm') }
+  options { timestamps() }
 
   parameters {
-    string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch')
-    choice(name: 'DEPLOY_ENV', choices: ['staging','production'], description: 'Deploy env')
+    string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch to build')
+    choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'], description: 'Deployment environment')
   }
 
   environment {
-    GIT_URL   = 'https://github.com/Mbarekwael/spring-petclinic.git'
-    JAVA_HOME = '/var/jenkins_home/.sdkman/candidates/java/current'
+    GIT_URL = 'https://github.com/Mbarekwael/spring-petclinic.git'
+    DOCKER_IMAGE = 'spring-petclinic'
+    DOCKER_HUB_USERNAME = 'mbarekwael'
+    EMAIL_RECIPIENTS = 'team@example.com'
   }
 
   stages {
+
     stage('Checkout') {
       steps {
         checkout([$class: 'GitSCM',
@@ -21,10 +24,9 @@ pipeline {
         ])
         script {
           env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-          env.BUILD_VERSION    = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
-          env.DOCKER_IMAGE     = "spring-petclinic"
-          env.DOCKER_TAG       = env.BUILD_VERSION
-          echo "Commit=${env.GIT_COMMIT_SHORT}  BUILD_VERSION=${env.BUILD_VERSION}"
+          env.BUILD_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+          env.DOCKER_TAG = env.BUILD_VERSION
+          echo "✅ Checked out commit ${env.GIT_COMMIT_SHORT}"
         }
       }
     }
@@ -32,13 +34,14 @@ pipeline {
     stage('Build') {
       steps {
         sh '''
-          export PATH="${JAVA_HOME}/bin:${PATH}"
-          chmod +x mvnw || true
+          echo "---- Using Java ----"
+          java -version
+          echo "---- Building ----"
           ./mvnw -B -U -DskipTests=true clean package
         '''
       }
       post {
-        always { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false }
+        always { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true }
       }
     }
 
@@ -46,26 +49,19 @@ pipeline {
       parallel {
         stage('Unit Tests') {
           steps {
-            
             sh '''
-              export PATH="${JAVA_HOME}/bin:${PATH}"
-              ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
-                     -Dtest=\\!PostgresIntegrationTests \
-                     test
+              ./mvnw -B test -Dtest=!PostgresIntegrationTests
             '''
           }
           post {
             always { junit testResults: 'target/**/TEST-*.xml', allowEmptyResults: false }
           }
         }
-        stage('Integration Tests (MySQL only)') {
+
+        stage('Integration Tests') {
           steps {
-            
             sh '''
-              export PATH="${JAVA_HOME}/bin:${PATH}"
-              ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
-                     -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
-                     verify
+              ./mvnw -B verify -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests
             '''
           }
           post {
@@ -75,31 +71,39 @@ pipeline {
       }
     }
 
-    stage('Docker Image Build') {
+    stage('Docker Build & Push') {
       steps {
-        sh '''
-          docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-          docker images | head -n 5
-        '''
+        script {
+          docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds-wael') {
+            sh '''
+              echo "---- Building Docker image ----"
+              docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+              docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
+              echo "---- Pushing to Docker Hub ----"
+              docker push ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
+            '''
+          }
+        }
       }
     }
 
     stage('Artifact Archiving') {
       steps {
-        sh 'echo "image=${DOCKER_IMAGE}:${DOCKER_TAG}" > image.txt'
+        sh '''
+          echo "image=${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}" > image.txt
+        '''
         archiveArtifacts artifacts: 'image.txt', fingerprint: true
       }
     }
 
-    stage('Deployment (staging only)') {
+    stage('Deployment Simulation') {
       when { expression { params.DEPLOY_ENV == 'staging' && !env.CHANGE_ID } }
       steps {
         sh '''
           docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
           docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
-          # host 8082 (busy 8080), container 8080
-          docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
-          echo "Application deployed successfully."
+          docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
+          echo "✅ Application deployed successfully on http://localhost:8082"
         '''
       }
     }
@@ -107,16 +111,16 @@ pipeline {
 
   post {
     success {
-      echo "✅ Build successful: ${env.DOCKER_HUB_USERNAME}/${env.DOCKER_IMAGE}:${env.DOCKER_TAG}"
-      mail to: "${env.EMAIL_RECIPIENTS}",
-           subject: "✅ Jenkins Build SUCCESS #${env.BUILD_NUMBER}",
-           body: "Build & deployment of ${env.DOCKER_IMAGE}:${env.DOCKER_TAG} completed successfully."
+      echo "✅ Build successful: ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}"
+      mail to: "${EMAIL_RECIPIENTS}",
+           subject: "✅ Jenkins Build SUCCESS #${BUILD_NUMBER}",
+           body: "The build and deployment of ${DOCKER_IMAGE}:${DOCKER_TAG} completed successfully."
     }
     failure {
       echo "❌ Build failed!"
-      mail to: "${env.EMAIL_RECIPIENTS}",
-           subject: "❌ Jenkins Build FAILED #${env.BUILD_NUMBER}",
-           body: "Build for ${env.DOCKER_IMAGE}:${env.DOCKER_TAG} failed. Please check Jenkins logs."
+      mail to: "${EMAIL_RECIPIENTS}",
+           subject: "❌ Jenkins Build FAILED #${BUILD_NUMBER}",
+           body: "The Jenkins build for ${DOCKER_IMAGE}:${DOCKER_TAG} has failed. Please check logs."
     }
   }
 }
